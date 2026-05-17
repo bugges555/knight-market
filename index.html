@@ -460,11 +460,11 @@ grid-template-columns:1fr;
 <div class="loginBox">
 
 <div class="loginTitle">
-Knight Admin Login
+Knight Market Login
 </div>
 
 <div class="loginText">
-Panele giriş yapmak için admin hesabınla oturum aç.
+Hesap oluşturabilirsin ama admin onayı olmadan panel açılmaz. Onaydan sonra herkes sadece kendi datasını görür.
 </div>
 
 <input id="loginEmail" type="email" placeholder="E-posta">
@@ -475,7 +475,13 @@ Panele giriş yapmak için admin hesabınla oturum aç.
 GİRİŞ YAP
 </button>
 
+<button class="loginBtn" type="button" onclick="registerUser()" style="background:#2d8cff">
+KAYIT İSTEĞİ GÖNDER
+</button>
+
 <div class="loginError" id="loginError"></div>
+
+<div id="approvalRequestsArea" style="margin-top:20px"></div>
 
 </div>
 
@@ -748,13 +754,13 @@ Kar Analizi
 <div class="stockBox">
 
 <div class="panelTitle">
-Admin Paneli
+Kullanıcı Paneli
 </div>
 
 <div class="adminGrid">
 
 <div class="adminAction">
-<div class="adminActionTitle">Giriş Durumu</div>
+<div class="adminActionTitle">Hesap Durumu</div>
 <div id="adminEmailView">-</div>
 </div>
 
@@ -763,9 +769,14 @@ Admin Paneli
 <div>Firebase Cloud Aktif</div>
 </div>
 
+<div class="adminAction">
+<div class="adminActionTitle">Kayıt Onayları</div>
+<button type="button" onclick="loadApprovalRequests()">KAYITLARI GÖSTER</button>
+</div>
+
 <div class="adminAction adminDanger">
-<div class="adminActionTitle">Tüm Kayıtları Temizle</div>
-<button type="button" onclick="clearAllTrades()">TÜM VERİYİ SİL</button>
+<div class="adminActionTitle">Kendi Kayıtlarımı Temizle</div>
+<button type="button" onclick="clearAllTrades()">KENDİ VERİLERİMİ SİL</button>
 </div>
 
 </div>
@@ -840,19 +851,51 @@ async function loginAdmin(){
   }
 }
 
+async function registerUser(){
+  const email = document.getElementById("loginEmail").value.trim();
+  const password = document.getElementById("loginPassword").value;
+
+  if(!email || !password){
+    setLoginError("E-posta ve şifre gerekli.");
+    return;
+  }
+
+  try{
+    setLoginError("Kayıt isteği oluşturuluyor...");
+
+    const cred = await auth.createUserWithEmailAndPassword(email, password);
+
+    await db.collection("approvalRequests").doc(cred.user.uid).set({
+      uid: cred.user.uid,
+      email: email,
+      status: "pending",
+      approved: false,
+      date: new Date().toISOString()
+    });
+
+    setLoginError("Kayıt isteğin alındı. Admin onaylayınca panel açılacak.");
+  }catch(err){
+    setLoginError("Kayıt isteği oluşturulamadı: " + err.message);
+  }
+}
+
 async function logoutAdmin(){
   await auth.signOut();
 }
 
-function requireAdmin(){
-  if(!isAdmin){
-    alert("Bu işlem için admin girişi gerekli.");
+function requireLogin(){
+  if(!currentUser){
+    alert("Bu işlem için giriş yapman gerekli.");
     return false;
   }
   return true;
 }
 
-auth.onAuthStateChanged(function(user){
+function tradesRef(){
+  return db.collection("users").doc(currentUser.uid).collection("trades");
+}
+
+auth.onAuthStateChanged(async function(user){
   currentUser = user;
   isAdmin = !!user && user.email === ADMIN_EMAIL;
 
@@ -869,16 +912,35 @@ auth.onAuthStateChanged(function(user){
     return;
   }
 
-  if(!isAdmin){
-    auth.signOut();
-    setLoginError("Bu hesap admin değil: " + user.email);
+  if(isAdmin){
+    if(overlay) overlay.style.display = "none";
+    if(status) status.innerText = "Admin: " + user.email;
+    if(adminEmailView) adminEmailView.innerText = user.email + " / Admin";
+    loadData();
     return;
   }
 
-  if(overlay) overlay.style.display = "none";
-  if(status) status.innerText = "Admin: " + user.email;
-  if(adminEmailView) adminEmailView.innerText = user.email;
+  try{
+    const approvalDoc = await db.collection("approvedUsers").doc(user.uid).get();
 
+    if(!approvalDoc.exists || approvalDoc.data().approved !== true){
+      if(overlay) overlay.style.display = "flex";
+      if(status) status.innerText = "Onay bekliyor";
+      if(adminEmailView) adminEmailView.innerText = user.email + " / Onay bekliyor";
+      setLoginError("Kaydın alındı. Admin onaylayınca giriş yapabileceksin.");
+      trades = [];
+      render();
+      return;
+    }
+
+    if(overlay) overlay.style.display = "none";
+    if(status) status.innerText = "Kullanıcı: " + user.email;
+    if(adminEmailView) adminEmailView.innerText = user.email + " / Onaylı Kullanıcı";
+
+    loadData();
+  }catch(err){
+    setLoginError("Onay kontrolü yapılamadı: " + err.message);
+  }
 });
 
 
@@ -930,11 +992,11 @@ function showSection(id){
 }
 
 async function loadData(){
-  if(!isAdmin){ return; }
+  if(!currentUser){ return; }
   try{
     trades = [];
     const snap = await Promise.race([
-      db.collection("trades").get(),
+      tradesRef().get(),
       timeoutPromise(12000, "Firebase okuma zaman aşımı. Firestore Database açık mı kontrol et.")
     ]);
 
@@ -1044,7 +1106,7 @@ function render(){
 }
 
 async function addItem(){
-  if(!requireAdmin()){ return; }
+  if(!requireLogin()){ return; }
   const btn = document.getElementById('addItemBtn') || document.querySelector('.addBtn[onclick="addItem()"]');
 
   const name = document.getElementById('itemName').value.trim();
@@ -1064,7 +1126,7 @@ async function addItem(){
 
   try{
     await Promise.race([
-      db.collection("trades").add({
+      tradesRef().add({
         name: name,
         buy: buy,
         sell: 0,
@@ -1093,7 +1155,7 @@ async function addItem(){
 }
 
 async function sellItem(index){
-  if(!requireAdmin()){ return; }
+  if(!requireLogin()){ return; }
   const item = trades[index];
 
   const sellQty = Number(prompt("Kaç adet satıldı?"));
@@ -1114,7 +1176,7 @@ async function sellItem(index){
   const kalanAdet = Number(item.qty || 0) - sellQty;
 
   try{
-    await db.collection("trades").add({
+    await tradesRef().add({
       name: item.name,
       category: item.category,
       buy: buyPrice,
@@ -1127,9 +1189,9 @@ async function sellItem(index){
     });
 
     if(kalanAdet <= 0){
-      await db.collection("trades").doc(item.id).delete();
+      await tradesRef().doc(item.id).delete();
     }else{
-      await db.collection("trades").doc(item.id).update({ qty: kalanAdet });
+      await tradesRef().doc(item.id).update({ qty: kalanAdet });
     }
 
     await loadData();
@@ -1139,10 +1201,10 @@ async function sellItem(index){
 }
 
 async function deleteItem(index){
-  if(!requireAdmin()){ return; }
+  if(!requireLogin()){ return; }
   if(confirm("Silinsin mi?")){
     try{
-      await db.collection("trades").doc(trades[index].id).delete();
+      await tradesRef().doc(trades[index].id).delete();
       await loadData();
     }catch(err){
       alert("Silinemedi: " + err.message);
@@ -1151,7 +1213,7 @@ async function deleteItem(index){
 }
 
 async function editItem(index){
-  if(!requireAdmin()){ return; }
+  if(!requireLogin()){ return; }
   const t = trades[index];
 
   document.getElementById('itemName').value = t.name;
@@ -1160,7 +1222,7 @@ async function editItem(index){
   document.getElementById('category').value = t.category;
 
   try{
-    await db.collection("trades").doc(t.id).delete();
+    await tradesRef().doc(t.id).delete();
     await loadData();
   }catch(err){
     alert("Düzenleme başlatılamadı: " + err.message);
@@ -1206,15 +1268,99 @@ function calculateMarketProfit(){
 }
 
 
-async function clearAllTrades(){
-  if(!requireAdmin()){ return; }
 
-  if(!confirm("Tüm kayıtlar silinsin mi? Bu işlem geri alınamaz.")){
+async function loadApprovalRequests(){
+  if(!isAdmin){
+    alert("Bu alan sadece admin için.");
+    return;
+  }
+
+  const area = document.getElementById("approvalRequestsArea");
+  area.innerHTML = "Yükleniyor...";
+
+  try{
+    const snap = await db.collection("approvalRequests").orderBy("date","desc").get();
+
+    if(snap.empty){
+      area.innerHTML = '<div class="stockItem"><span>Bekleyen kayıt yok</span><span>-</span></div>';
+      return;
+    }
+
+    area.innerHTML = "";
+
+    snap.forEach(function(d){
+      const r = d.data();
+      const approvedText = r.approved ? "ONAYLI" : "BEKLİYOR";
+
+      area.innerHTML += `
+        <div class="stockItem">
+          <span>${r.email}</span>
+          <span>
+            ${approvedText}
+            ${!r.approved ? `<button class="actionBtn sell" type="button" onclick="approveUser('${r.uid}','${r.email}')">ONAYLA</button>` : ``}
+            <button class="actionBtn delete" type="button" onclick="deleteApprovalRequest('${r.uid}')">SİL</button>
+          </span>
+        </div>
+      `;
+    });
+  }catch(err){
+    area.innerHTML = "Kayıtlar okunamadı: " + err.message;
+  }
+}
+
+async function approveUser(uid,email){
+  if(!isAdmin){
+    alert("Bu alan sadece admin için.");
     return;
   }
 
   try{
-    const snap = await db.collection("trades").get();
+    await db.collection("approvedUsers").doc(uid).set({
+      uid: uid,
+      email: email,
+      approved: true,
+      approvedAt: new Date().toISOString(),
+      approvedBy: currentUser.email
+    });
+
+    await db.collection("approvalRequests").doc(uid).update({
+      status: "approved",
+      approved: true,
+      approvedAt: new Date().toISOString()
+    });
+
+    alert("Kullanıcı onaylandı: " + email);
+    loadApprovalRequests();
+  }catch(err){
+    alert("Onaylanamadı: " + err.message);
+  }
+}
+
+async function deleteApprovalRequest(uid){
+  if(!isAdmin){
+    alert("Bu alan sadece admin için.");
+    return;
+  }
+
+  try{
+    await db.collection("approvalRequests").doc(uid).delete();
+    alert("Kayıt isteği silindi. Not: Firebase Authentication içindeki kullanıcı ayrıca kalabilir.");
+    loadApprovalRequests();
+  }catch(err){
+    alert("Silinemedi: " + err.message);
+  }
+}
+
+
+async function clearAllTrades(){
+  if(!requireLogin()){ return; }
+
+  if(!confirm("Kendi tüm kayıtların silinsin mi? Bu işlem geri alınamaz.")){
+    return;
+  }
+
+  try{
+    const snap = await tradesRef().get();
     const batch = db.batch();
 
     snap.forEach(function(d){
@@ -1223,7 +1369,7 @@ async function clearAllTrades(){
 
     await batch.commit();
     await loadData();
-    alert("Tüm kayıtlar temizlendi.");
+    alert("Kendi kayıtların temizlendi.");
   }catch(err){
     alert("Veriler silinemedi: " + err.message);
   }
@@ -1237,8 +1383,12 @@ window.editItem = editItem;
 window.filterItems = filterItems;
 window.addItem = addItem;
 window.loginAdmin = loginAdmin;
+window.registerUser = registerUser;
 window.logoutAdmin = logoutAdmin;
 window.clearAllTrades = clearAllTrades;
+window.loadApprovalRequests = loadApprovalRequests;
+window.approveUser = approveUser;
+window.deleteApprovalRequest = deleteApprovalRequest;
 window.calculateMarketProfit = calculateMarketProfit;
 
 document.addEventListener("DOMContentLoaded", function(){
