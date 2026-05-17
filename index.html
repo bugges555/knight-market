@@ -346,15 +346,151 @@ grid-template-columns:repeat(2,1fr);
 }
 }
 
+
+.loginOverlay{
+position:fixed;
+inset:0;
+background:radial-gradient(circle at top,#26123f 0%,#09050f 50%,#040308 100%);
+z-index:99999;
+display:flex;
+align-items:center;
+justify-content:center;
+padding:20px;
+}
+.loginBox{
+width:420px;
+max-width:100%;
+background:#120a1d;
+border:1px solid #7b2cff;
+border-radius:24px;
+padding:30px;
+box-shadow:0 0 45px rgba(123,44,255,.25);
+}
+.loginTitle{
+font-family:'Cinzel',serif;
+font-size:30px;
+margin-bottom:10px;
+background:linear-gradient(to bottom,#ffdf95,#8b5d1e);
+-webkit-background-clip:text;
+-webkit-text-fill-color:transparent;
+}
+.loginText{
+color:#d7c4ff;
+font-size:13px;
+line-height:1.6;
+margin-bottom:20px;
+}
+.loginBtn{
+height:52px;
+width:100%;
+border:none;
+border-radius:12px;
+background:#7b2cff;
+color:white;
+font-weight:700;
+cursor:pointer;
+margin-top:10px;
+}
+.loginError{
+margin-top:15px;
+color:#ff4f70;
+font-size:13px;
+min-height:18px;
+}
+.adminBadge{
+border:1px solid #7b2cff;
+background:#1a0f2a;
+padding:10px 14px;
+border-radius:12px;
+font-size:12px;
+color:#d7c4ff;
+}
+.logoutBtn{
+border:none;
+background:#ff456f;
+color:white;
+border-radius:10px;
+padding:10px 14px;
+font-weight:700;
+cursor:pointer;
+margin-left:10px;
+}
+.adminGrid{
+display:grid;
+grid-template-columns:repeat(3,1fr);
+gap:15px;
+}
+.adminAction{
+background:#090511;
+border:1px solid #3c1c68;
+border-radius:14px;
+padding:18px;
+}
+.adminActionTitle{
+color:#b08dff;
+font-size:13px;
+margin-bottom:10px;
+}
+.adminAction button{
+width:100%;
+height:44px;
+border:none;
+border-radius:10px;
+background:#7b2cff;
+color:white;
+font-weight:700;
+cursor:pointer;
+}
+.adminDanger button{
+background:#ff456f;
+}
+@media(max-width:1200px){
+.adminGrid{
+grid-template-columns:1fr;
+}
+}
+
 </style>
 </head>
 
 <body>
 
+<div class="loginOverlay" id="loginOverlay">
+
+<div class="loginBox">
+
+<div class="loginTitle">
+Knight Admin Login
+</div>
+
+<div class="loginText">
+Panele giriş yapmak için admin hesabınla oturum aç.
+</div>
+
+<input id="loginEmail" type="email" placeholder="E-posta">
+
+<input id="loginPassword" type="password" placeholder="Şifre">
+
+<button class="loginBtn" type="button" onclick="loginAdmin()">
+GİRİŞ YAP
+</button>
+
+<div class="loginError" id="loginError"></div>
+
+</div>
+
+</div>
+
+
 <div class="topbar">
 
 <div class="logo">
 KNIGHT ONLINE
+</div>
+
+<div>
+<span class="adminBadge" id="adminStatus">Giriş bekleniyor</span>
+<button class="logoutBtn" type="button" onclick="logoutAdmin()">Çıkış</button>
 </div>
 
 </div>
@@ -612,22 +748,26 @@ Kar Analizi
 <div class="stockBox">
 
 <div class="panelTitle">
-Ayarlar
+Admin Paneli
 </div>
 
-<div class="stockItem">
-<span>Premium Tema</span>
-<span>Aktif</span>
+<div class="adminGrid">
+
+<div class="adminAction">
+<div class="adminActionTitle">Giriş Durumu</div>
+<div id="adminEmailView">-</div>
 </div>
 
-<div class="stockItem">
-<span>Firebase Cloud</span>
-<span>Aktif</span>
+<div class="adminAction">
+<div class="adminActionTitle">Veri Sistemi</div>
+<div>Firebase Cloud Aktif</div>
 </div>
 
-<div class="stockItem">
-<span>Gerçek Zamanlı Sistem</span>
-<span>Aktif</span>
+<div class="adminAction adminDanger">
+<div class="adminActionTitle">Tüm Kayıtları Temizle</div>
+<button type="button" onclick="clearAllTrades()">TÜM VERİYİ SİL</button>
+</div>
+
 </div>
 
 </div>
@@ -645,6 +785,7 @@ KNIGHT ONLINE PREMIUM MARKET SYSTEM © 2026
 
 
 <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore-compat.js"></script>
 
 <script>
@@ -660,13 +801,86 @@ const firebaseConfig = {
 
 firebase.initializeApp(firebaseConfig);
 
+const auth = firebase.auth();
 const db = firebase.firestore();
+
+const ADMIN_EMAIL = "fatihsenerr555@gmail.com";
+let currentUser = null;
+let isAdmin = false;
+
 db.settings({
   experimentalForceLongPolling: true,
   useFetchStreams: false
 });
 
 let trades = [];
+
+
+function setLoginError(message){
+  const el = document.getElementById("loginError");
+  if(el){
+    el.innerText = message || "";
+  }
+}
+
+async function loginAdmin(){
+  const email = document.getElementById("loginEmail").value.trim();
+  const password = document.getElementById("loginPassword").value;
+
+  if(!email || !password){
+    setLoginError("E-posta ve şifre gerekli.");
+    return;
+  }
+
+  try{
+    setLoginError("Giriş yapılıyor...");
+    await auth.signInWithEmailAndPassword(email, password);
+  }catch(err){
+    setLoginError("Giriş başarısız: " + err.message);
+  }
+}
+
+async function logoutAdmin(){
+  await auth.signOut();
+}
+
+function requireAdmin(){
+  if(!isAdmin){
+    alert("Bu işlem için admin girişi gerekli.");
+    return false;
+  }
+  return true;
+}
+
+auth.onAuthStateChanged(function(user){
+  currentUser = user;
+  isAdmin = !!user && user.email === ADMIN_EMAIL;
+
+  const overlay = document.getElementById("loginOverlay");
+  const status = document.getElementById("adminStatus");
+  const adminEmailView = document.getElementById("adminEmailView");
+
+  if(!user){
+    if(overlay) overlay.style.display = "flex";
+    if(status) status.innerText = "Giriş yok";
+    if(adminEmailView) adminEmailView.innerText = "-";
+    trades = [];
+    render();
+    return;
+  }
+
+  if(!isAdmin){
+    auth.signOut();
+    setLoginError("Bu hesap admin değil: " + user.email);
+    return;
+  }
+
+  if(overlay) overlay.style.display = "none";
+  if(status) status.innerText = "Admin: " + user.email;
+  if(adminEmailView) adminEmailView.innerText = user.email;
+
+});
+
 
 function timeoutPromise(ms, message){
   return new Promise(function(_, reject){
@@ -716,6 +930,7 @@ function showSection(id){
 }
 
 async function loadData(){
+  if(!isAdmin){ return; }
   try{
     trades = [];
     const snap = await Promise.race([
@@ -829,6 +1044,7 @@ function render(){
 }
 
 async function addItem(){
+  if(!requireAdmin()){ return; }
   const btn = document.getElementById('addItemBtn') || document.querySelector('.addBtn[onclick="addItem()"]');
 
   const name = document.getElementById('itemName').value.trim();
@@ -877,6 +1093,7 @@ async function addItem(){
 }
 
 async function sellItem(index){
+  if(!requireAdmin()){ return; }
   const item = trades[index];
 
   const sellQty = Number(prompt("Kaç adet satıldı?"));
@@ -922,6 +1139,7 @@ async function sellItem(index){
 }
 
 async function deleteItem(index){
+  if(!requireAdmin()){ return; }
   if(confirm("Silinsin mi?")){
     try{
       await db.collection("trades").doc(trades[index].id).delete();
@@ -933,6 +1151,7 @@ async function deleteItem(index){
 }
 
 async function editItem(index){
+  if(!requireAdmin()){ return; }
   const t = trades[index];
 
   document.getElementById('itemName').value = t.name;
@@ -986,12 +1205,40 @@ function calculateMarketProfit(){
   document.getElementById('calcProfitView').innerText = formatKnightMoney(expectedProfit);
 }
 
+
+async function clearAllTrades(){
+  if(!requireAdmin()){ return; }
+
+  if(!confirm("Tüm kayıtlar silinsin mi? Bu işlem geri alınamaz.")){
+    return;
+  }
+
+  try{
+    const snap = await db.collection("trades").get();
+    const batch = db.batch();
+
+    snap.forEach(function(d){
+      batch.delete(d.ref);
+    });
+
+    await batch.commit();
+    await loadData();
+    alert("Tüm kayıtlar temizlendi.");
+  }catch(err){
+    alert("Veriler silinemedi: " + err.message);
+  }
+}
+
+
 window.showSection = showSection;
 window.sellItem = sellItem;
 window.deleteItem = deleteItem;
 window.editItem = editItem;
 window.filterItems = filterItems;
 window.addItem = addItem;
+window.loginAdmin = loginAdmin;
+window.logoutAdmin = logoutAdmin;
+window.clearAllTrades = clearAllTrades;
 window.calculateMarketProfit = calculateMarketProfit;
 
 document.addEventListener("DOMContentLoaded", function(){
@@ -1004,7 +1251,6 @@ document.addEventListener("DOMContentLoaded", function(){
     };
   }
 
-  loadData();
 });
 </script>
 
