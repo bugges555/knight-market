@@ -464,7 +464,7 @@ Knight Market Login
 </div>
 
 <div class="loginText">
-Hesap oluşturabilirsin ama admin onayı olmadan panel açılmaz. Onaydan sonra herkes sadece kendi datasını görür.
+Admin onayı olmadan panel açılmaz. Onaydan sonra herkes sadece kendi datasını görür.
 </div>
 
 <input id="loginEmail" type="email" placeholder="E-posta">
@@ -584,7 +584,7 @@ Pazar Kar Hesaplayıcı
 
 <div class="calcGrid">
 
-<input id="calcSellPrice" type="number" placeholder="Pazarda satış fiyatı örn: 150000000">
+<input id="calcSellPrice" type="text" inputmode="numeric" placeholder="Pazarda satış fiyatı örn: 150000000">
 
 <input id="calcTaxRate" type="number" value="3" placeholder="Vergi %">
 
@@ -633,7 +633,7 @@ HESAPLA
 
 <input id="itemName" placeholder="İtem adı">
 
-<input id="buyPrice" type="number" placeholder="Alış fiyatı">
+<input id="buyPrice" type="text" inputmode="numeric" placeholder="Alış fiyatı">
 
 <input id="qty" type="number" placeholder="Adet">
 
@@ -771,7 +771,7 @@ Kullanıcı Paneli
 
 <div class="adminAction">
 <div class="adminActionTitle">Kayıt Onayları</div>
-<button type="button" onclick="loadApprovalRequests()">KAYITLARI GÖSTER</button>
+<button id="approvalBtn" type="button" onclick="loadApprovalRequests()">KAYITLARI GÖSTER</button>
 </div>
 
 <div class="adminAction adminDanger">
@@ -952,6 +952,41 @@ function timeoutPromise(ms, message){
   });
 }
 
+function parseKnightMoney(value){
+  if(typeof value === "number"){
+    return value;
+  }
+
+  let s = String(value || "").trim();
+
+  if(!s){
+    return 0;
+  }
+
+  let lower = s.toLowerCase().replace(/\s/g, "");
+  let multiplier = 1;
+
+  if(lower.includes("gb")){
+    multiplier = 100000000;
+    lower = lower.replace(/gb/g, "");
+  }else if(lower.includes("m")){
+    multiplier = 1000000;
+    lower = lower.replace(/m/g, "");
+  }else if(lower.includes("k")){
+    multiplier = 1000;
+    lower = lower.replace(/k/g, "");
+  }
+
+  lower = lower.replace(/[.,]/g, "");
+  lower = lower.replace(/[^0-9-]/g, "");
+
+  return Number(lower || 0) * multiplier;
+}
+
+function formatRawCoins(value){
+  return Number(value || 0).toLocaleString('tr-TR');
+}
+
 function formatKnightMoney(value){
   let n = Number(value || 0);
   let sign = n < 0 ? "-" : "";
@@ -1110,7 +1145,7 @@ async function addItem(){
   const btn = document.getElementById('addItemBtn') || document.querySelector('.addBtn[onclick="addItem()"]');
 
   const name = document.getElementById('itemName').value.trim();
-  const buy = Number(document.getElementById('buyPrice').value);
+  const buy = parseKnightMoney(document.getElementById('buyPrice').value);
   const qty = Number(document.getElementById('qty').value);
   const category = document.getElementById('category').value;
 
@@ -1166,7 +1201,7 @@ async function sellItem(index){
     return;
   }
 
-  const sellPrice = Number(prompt("Satış fiyatı"));
+  const sellPrice = parseKnightMoney(prompt("Satış fiyatı"));
   if(!sellPrice) return;
 
   const buyPrice = Number(item.buy || 0);
@@ -1248,7 +1283,7 @@ function filterItems(type){
 }
 
 function calculateMarketProfit(){
-  const sellPrice = Number(document.getElementById('calcSellPrice').value);
+  const sellPrice = parseKnightMoney(document.getElementById('calcSellPrice').value);
   const taxRate = Number(document.getElementById('calcTaxRate').value || 3);
   const profitRate = Number(document.getElementById('calcProfitRate').value || 20);
 
@@ -1398,6 +1433,30 @@ document.addEventListener("DOMContentLoaded", function(){
     btn.onclick = function(e){
       e.preventDefault();
       addItem();
+    };
+  }
+
+
+  const moneyInputs = ["buyPrice","calcSellPrice"];
+  moneyInputs.forEach(function(id){
+    const input = document.getElementById(id);
+    if(!input) return;
+
+    input.addEventListener("input", function(){
+      let raw = input.value.replace(/[^0-9]/g, "");
+      if(!raw){
+        input.value = "";
+        return;
+      }
+      input.value = Number(raw).toLocaleString("tr-TR");
+    });
+  });
+
+  const approvalBtn = document.getElementById("approvalBtn");
+  if(approvalBtn){
+    approvalBtn.onclick = function(e){
+      e.preventDefault();
+      loadApprovalRequests();
     };
   }
 
