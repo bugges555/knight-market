@@ -575,6 +575,10 @@ GİRİŞ YAP
 KAYIT İSTEĞİ GÖNDER
 </button>
 
+<button class="loginBtn" type="button" onclick="forgotPasswordRequest()" style="background:#1a0f2a;border:1px solid #7b2cff;">
+ŞİFREMİ UNUTTUM
+</button>
+
 <div class="loginError" id="loginError"></div>
 
 <div id="approvalRequestsArea" style="margin-top:20px"></div>
@@ -946,6 +950,11 @@ Kullanıcı Paneli
 <button id="approvalBtn" type="button" onclick="loadApprovalRequests()">KAYITLARI YENİLE</button>
 </div>
 
+<div class="adminAction">
+<div class="adminActionTitle">Şifre Sıfırlama Talepleri</div>
+<button id="passwordRequestsBtn" type="button" onclick="loadPasswordRequests()">TALEPLERİ YENİLE</button>
+</div>
+
 <div class="adminAction adminDanger">
 <div class="adminActionTitle">Kendi Kayıtlarımı Temizle</div>
 <button type="button" onclick="clearAllTrades()">KENDİ VERİLERİMİ SİL</button>
@@ -954,6 +963,16 @@ Kullanıcı Paneli
 </div>
 
 <div id="settingsApprovalRequestsArea" style="margin-top:20px"></div>
+
+<div class="stockBox" style="margin-top:25px;">
+<div class="panelTitle">Kayıt Onay Listesi</div>
+<div id="adminApprovalArea"></div>
+</div>
+
+<div class="stockBox" style="margin-top:25px;">
+<div class="panelTitle">Şifre Sıfırlama Talepleri</div>
+<div id="passwordRequestsArea"></div>
+</div>
 
 </div>
 
@@ -1008,8 +1027,45 @@ function setLoginError(message){
   }
 }
 
+function safeEmailId(email){
+  return String(email || "").trim().toLowerCase()
+    .replace(/\./g, "_dot_")
+    .replace(/@/g, "_at_")
+    .replace(/[^a-z0-9_]/g, "_");
+}
+
+async function isUserApproved(user){
+  if(!user || !user.email){ return false; }
+
+  const email = user.email.trim().toLowerCase();
+  const emailId = safeEmailId(email);
+
+  const uidCheck = db.collection("approvedUsers").doc(user.uid).get()
+    .then(function(doc){ return doc.exists && doc.data().approved === true; })
+    .catch(function(){ return false; });
+
+  const emailCheck = db.collection("approvedEmails").doc(emailId).get()
+    .then(function(doc){ return doc.exists && doc.data().approved === true; })
+    .catch(function(){ return false; });
+
+  const requestCheck = db.collection("approvalRequests")
+    .where("email","==",email)
+    .where("approved","==",true)
+    .limit(1)
+    .get()
+    .then(function(snap){ return !snap.empty; })
+    .catch(function(){ return false; });
+
+  const results = await Promise.race([
+    Promise.all([uidCheck, emailCheck, requestCheck]),
+    timeoutPromise(12000, "Onay kontrolü zaman aşımı. İnternet/Firebase bağlantısını kontrol et.")
+  ]);
+
+  return results.some(Boolean);
+}
+
 async function loginAdmin(){
-  const email = document.getElementById("loginEmail").value.trim();
+  const email = document.getElementById("loginEmail").value.trim().toLowerCase();
   const password = document.getElementById("loginPassword").value;
 
   if(!email || !password){
@@ -1019,14 +1075,31 @@ async function loginAdmin(){
 
   try{
     setLoginError("Giriş yapılıyor...");
-    await auth.signInWithEmailAndPassword(email, password);
+
+    const cred = await Promise.race([
+      auth.signInWithEmailAndPassword(email, password),
+      timeoutPromise(12000, "Giriş zaman aşımı. İnternet bağlantısını kontrol et.")
+    ]);
+
+    setLoginError("Giriş başarılı, onay kontrol ediliyor...");
+
+    if(cred.user && cred.user.email !== ADMIN_EMAIL){
+      const approved = await isUserApproved(cred.user);
+
+      if(!approved){
+        setLoginError("Bu hesap henüz admin tarafından onaylanmamış.");
+        await auth.signOut();
+        return;
+      }
+    }
+
   }catch(err){
     setLoginError("Giriş başarısız: " + err.message);
   }
 }
 
 async function registerUser(){
-  const email = document.getElementById("loginEmail").value.trim();
+  const email = document.getElementById("loginEmail").value.trim().toLowerCase();
   const password = document.getElementById("loginPassword").value;
 
   if(!email || !password){
@@ -1095,9 +1168,9 @@ auth.onAuthStateChanged(async function(user){
   }
 
   try{
-    const approvalDoc = await db.collection("approvedUsers").doc(user.uid).get();
+    const approved = await isUserApproved(user);
 
-    if(!approvalDoc.exists || approvalDoc.data().approved !== true){
+    if(!approved){
       if(overlay) overlay.style.display = "flex";
       if(status) status.innerText = "Onay bekliyor";
       if(adminEmailView) adminEmailView.innerText = user.email + " / Onay bekliyor";
@@ -1201,9 +1274,10 @@ document.getElementById('settingsPage').style.display='none';
 
 document.getElementById(id).style.display='block';
 
-if(id === 'settingsPage' && typeof loadApprovalRequests === 'function'){
+if(id === 'settingsPage'){
   setTimeout(function(){
-    loadApprovalRequests();
+    if(typeof loadApprovalRequests === 'function'){ loadApprovalRequests(); }
+    if(typeof loadPasswordRequests === 'function'){ loadPasswordRequests(); }
   }, 300);
 }
 
@@ -1889,11 +1963,19 @@ async function approveUser(uid,email){
   try{
     await db.collection("approvedUsers").doc(uid).set({
       uid: uid,
-      email: email,
+      email: String(email || "").trim().toLowerCase(),
       approved: true,
       approvedAt: new Date().toISOString(),
       approvedBy: currentUser.email
     });
+
+    await db.collection("approvedEmails").doc(safeEmailId(email)).set({
+      uid: uid,
+      email: String(email || "").trim().toLowerCase(),
+      approved: true,
+      approvedAt: new Date().toISOString(),
+      approvedBy: currentUser.email
+    }, { merge:true });
 
     await db.collection("approvalRequests").doc(uid).set({
       uid: uid,
@@ -1920,6 +2002,153 @@ async function deleteApprovalRequest(uid){
   try{
     await db.collection("approvalRequests").doc(uid).delete();
     loadApprovalRequests();
+  }catch(err){
+    alert("Silinemedi: " + err.message);
+  }
+}
+
+
+async function forgotPasswordRequest(){
+  const email = document.getElementById("loginEmail").value.trim().toLowerCase();
+
+  if(!email){
+    setLoginError("Şifre sıfırlama için e-posta yaz.");
+    return;
+  }
+
+  try{
+    setLoginError("Şifre sıfırlama isteği gönderiliyor...");
+
+    const requestId = safeEmailId(email);
+
+    await db.collection("passwordResetRequests").doc(requestId).set({
+      email: email,
+      status: "pending",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    }, { merge:true });
+
+    try{
+      await auth.sendPasswordResetEmail(email);
+      await db.collection("passwordResetRequests").doc(requestId).set({
+        mailSent: true,
+        mailSentAt: new Date().toISOString()
+      }, { merge:true });
+      setLoginError("Şifre sıfırlama maili gönderildi. E-postanı kontrol et.");
+    }catch(mailErr){
+      setLoginError("Talebin admin paneline düştü. Admin kontrol edecek.");
+    }
+
+  }catch(err){
+    setLoginError("Şifre talebi oluşturulamadı: " + err.message);
+  }
+}
+
+async function loadPasswordRequests(){
+  const area = document.getElementById("passwordRequestsArea");
+
+  if(!area){
+    alert("Şifre talep alanı bulunamadı.");
+    return;
+  }
+
+  if(!isAdmin){
+    area.innerHTML = '<div class="stockItem"><span>Bu alan sadece admin için</span><span>-</span></div>';
+    return;
+  }
+
+  area.innerHTML = '<div class="stockItem"><span>Şifre talepleri yükleniyor...</span><span>Bekle</span></div>';
+
+  try{
+    const snap = await db.collection("passwordResetRequests").get();
+
+    if(snap.empty){
+      area.innerHTML = '<div class="stockItem"><span>Bekleyen şifre talebi yok</span><span>-</span></div>';
+      return;
+    }
+
+    let output = "";
+
+    snap.forEach(function(docSnap){
+      const r = docSnap.data();
+      const email = r.email || "E-posta yok";
+      const status = r.status || "pending";
+      const mailSent = r.mailSent === true;
+
+      output += `
+        <div class="stockItem">
+          <span>
+            ${email}
+            <br>
+            <small style="color:#876dc0;">Durum: ${status} ${mailSent ? "/ Reset maili gönderilmiş" : ""}</small>
+          </span>
+          <span>
+            <button class="actionBtn sell" type="button" onclick="sendResetMailFromAdmin('${email}')">RESET MAİLİ GÖNDER</button>
+            <button class="actionBtn edit" type="button" onclick="markPasswordRequestDone('${docSnap.id}')">ÇÖZÜLDÜ</button>
+            <button class="actionBtn delete" type="button" onclick="deletePasswordRequest('${docSnap.id}')">SİL</button>
+          </span>
+        </div>
+      `;
+    });
+
+    area.innerHTML = output;
+
+  }catch(err){
+    area.innerHTML = '<div class="stockItem"><span>Hata</span><span>' + err.message + '</span></div>';
+  }
+}
+
+async function sendResetMailFromAdmin(email){
+  if(!isAdmin){
+    alert("Bu alan sadece admin için.");
+    return;
+  }
+
+  try{
+    await auth.sendPasswordResetEmail(email);
+
+    await db.collection("passwordResetRequests").doc(safeEmailId(email)).set({
+      email: String(email || "").trim().toLowerCase(),
+      status: "mail_sent",
+      mailSent: true,
+      mailSentAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    }, { merge:true });
+
+    alert("Şifre sıfırlama maili gönderildi: " + email);
+    loadPasswordRequests();
+  }catch(err){
+    alert("Reset maili gönderilemedi: " + err.message);
+  }
+}
+
+async function markPasswordRequestDone(id){
+  if(!isAdmin){
+    alert("Bu alan sadece admin için.");
+    return;
+  }
+
+  try{
+    await db.collection("passwordResetRequests").doc(id).set({
+      status: "done",
+      updatedAt: new Date().toISOString()
+    }, { merge:true });
+
+    loadPasswordRequests();
+  }catch(err){
+    alert("Güncellenemedi: " + err.message);
+  }
+}
+
+async function deletePasswordRequest(id){
+  if(!isAdmin){
+    alert("Bu alan sadece admin için.");
+    return;
+  }
+
+  try{
+    await db.collection("passwordResetRequests").doc(id).delete();
+    loadPasswordRequests();
   }catch(err){
     alert("Silinemedi: " + err.message);
   }
@@ -1966,6 +2195,11 @@ window.loadApprovalRequests = loadApprovalRequests;
 window.approveUser = approveUser;
 window.deleteApprovalRequest = deleteApprovalRequest;
 window.calculateMarketProfit = calculateMarketProfit;
+window.forgotPasswordRequest = forgotPasswordRequest;
+window.loadPasswordRequests = loadPasswordRequests;
+window.sendResetMailFromAdmin = sendResetMailFromAdmin;
+window.markPasswordRequestDone = markPasswordRequestDone;
+window.deletePasswordRequest = deletePasswordRequest;
 window.applyAnalysisFilter = applyAnalysisFilter;
 window.resetAnalysisFilter = resetAnalysisFilter;
 
