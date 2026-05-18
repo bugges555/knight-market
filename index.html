@@ -623,7 +623,7 @@ Satılanlar
 Kar / Zarar Analiz
 </button>
 
-<button onclick="showSection('settingsPage')">
+<button id="settingsMenuBtn" onclick="showSection('settingsPage')">
 Ayarlar
 </button>
 
@@ -1149,8 +1149,10 @@ auth.onAuthStateChanged(async function(user){
   const overlay = document.getElementById("loginOverlay");
   const status = document.getElementById("adminStatus");
   const adminEmailView = document.getElementById("adminEmailView");
+  const settingsMenuBtn = document.getElementById("settingsMenuBtn");
 
   if(!user){
+    if(settingsMenuBtn) settingsMenuBtn.style.display = "none";
     if(overlay) overlay.style.display = "flex";
     if(status) status.innerText = "Giriş yok";
     if(adminEmailView) adminEmailView.innerText = "-";
@@ -1160,6 +1162,7 @@ auth.onAuthStateChanged(async function(user){
   }
 
   if(isAdmin){
+    if(settingsMenuBtn) settingsMenuBtn.style.display = "block";
     if(overlay) overlay.style.display = "none";
     if(status) status.innerText = "Admin: " + user.email;
     if(adminEmailView) adminEmailView.innerText = user.email + " / Admin";
@@ -1171,6 +1174,7 @@ auth.onAuthStateChanged(async function(user){
     const approved = await isUserApproved(user);
 
     if(!approved){
+      if(settingsMenuBtn) settingsMenuBtn.style.display = "none";
       if(overlay) overlay.style.display = "flex";
       if(status) status.innerText = "Onay bekliyor";
       if(adminEmailView) adminEmailView.innerText = user.email + " / Onay bekliyor";
@@ -1180,6 +1184,7 @@ auth.onAuthStateChanged(async function(user){
       return;
     }
 
+    if(settingsMenuBtn) settingsMenuBtn.style.display = "none";
     if(overlay) overlay.style.display = "none";
     if(status) status.innerText = "Kullanıcı: " + user.email;
     if(adminEmailView) adminEmailView.innerText = user.email + " / Onaylı Kullanıcı";
@@ -1265,6 +1270,11 @@ function profitPercent(profit, buy, qty){
 }
 
 function showSection(id){
+
+if(id === 'settingsPage' && !isAdmin){
+  alert("Ayarlar bölümü sadece admin içindir.");
+  id = 'dashboard';
+}
 
 document.getElementById('dashboard').style.display='none';
 document.getElementById('stockPage').style.display='none';
