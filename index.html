@@ -118,8 +118,9 @@ margin:0 0 25px 0;
 .card{
 background:#120a1d;
 border:1px solid #35175c;
-padding:25px;
+padding:18px;
 border-radius:20px;
+min-width:0;
 }
 
 .cardTitle{
@@ -129,8 +130,9 @@ margin-bottom:10px;
 }
 
 .cardValue{
-font-size:32px;
+font-size:28px;
 font-weight:700;
+white-space:nowrap;
 }
 
 .green{
@@ -576,6 +578,101 @@ flex-wrap:wrap;
 }
 }
 
+
+.cashDrawerOverlay{
+position:fixed;
+inset:0;
+background:rgba(0,0,0,.55);
+z-index:9998;
+display:none;
+}
+.cashDrawerOverlay.active{
+display:block;
+}
+.cashDrawer{
+position:fixed;
+top:0;
+left:-390px;
+width:370px;
+max-width:90%;
+height:100vh;
+background:#090511;
+border-right:1px solid #7b2cff;
+box-shadow:0 0 45px rgba(123,44,255,.28);
+z-index:9999;
+transition:.25s ease;
+padding:22px;
+overflow:auto;
+}
+.cashDrawer.active{
+left:0;
+}
+.cashDrawerHead{
+display:flex;
+align-items:center;
+justify-content:space-between;
+margin-bottom:24px;
+}
+.cashDrawerTitle{
+font-family:'Cinzel',serif;
+font-size:24px;
+color:#ffdf95;
+}
+.cashDrawerSub{
+font-size:12px;
+color:#b08dff;
+margin-top:6px;
+}
+.cashDrawerHead button{
+width:42px;
+height:42px;
+border:none;
+border-radius:12px;
+background:#ff456f;
+color:white;
+font-size:24px;
+cursor:pointer;
+}
+.cashDrawerBody input{
+width:100%;
+margin-bottom:14px;
+}
+.drawerLabel{
+display:block;
+font-size:12px;
+color:#b08dff;
+margin-bottom:8px;
+}
+.drawerBtn{
+width:100%;
+margin-bottom:18px;
+}
+.drawerStat{
+background:#120a1d;
+border:1px solid #35175c;
+border-radius:16px;
+padding:16px;
+margin-bottom:14px;
+display:flex;
+justify-content:space-between;
+gap:12px;
+}
+.drawerStat span{
+color:#b08dff;
+font-size:12px;
+}
+.drawerStat strong{
+font-size:20px;
+color:#00ff9d;
+white-space:nowrap;
+}
+@media(max-width:1400px){
+.card{padding:15px;}
+.cardValue{font-size:24px;}
+.cardTitle{font-size:11px;}
+.cardNote{font-size:10px;}
+}
+
 </style>
 </head>
 
@@ -699,6 +796,45 @@ Ayarlar
 <div class="cardNote">Her ayın 1'i 00:00'da yeni ay başlar.</div>
 </div>
 
+<div class="card" onclick="openCashDrawer()" style="cursor:pointer;">
+<div class="cardTitle">ANA KASA</div>
+<div class="cardValue green" id="cashBalanceView">0</div>
+<div class="cardNote">Kasa yönetimini açmak için tıkla.</div>
+</div>
+
+</div>
+
+<div class="cashDrawerOverlay" id="cashDrawerOverlay" onclick="closeCashDrawer()"></div>
+
+<div class="cashDrawer" id="cashDrawer">
+  <div class="cashDrawerHead">
+    <div>
+      <div class="cashDrawerTitle">Ana Kasa Yönetimi</div>
+      <div class="cashDrawerSub">Oyun içi GB / coin takibi</div>
+    </div>
+    <button type="button" onclick="closeCashDrawer()">×</button>
+  </div>
+
+  <div class="cashDrawerBody">
+    <label class="drawerLabel">Başlangıç / Güncel Kasa</label>
+    <input id="cashInput" type="text" inputmode="numeric" placeholder="Örn: 100 GB">
+
+    <button class="addBtn drawerBtn" type="button" onclick="setCashBalance()">KASAYI AYARLA</button>
+
+    <div class="drawerStat">
+      <span>Mevcut Kasa</span>
+      <strong id="cashBalancePanel">0</strong>
+    </div>
+
+    <div class="drawerStat">
+      <span>Stoktaki Mal Değeri</span>
+      <strong id="stockValuePanel">0</strong>
+    </div>
+
+    <div class="cardNote">
+      Item ekleyince alış tutarı kasadan düşer. Satış kaydedince satış tutarı kasaya eklenir.
+    </div>
+  </div>
 </div>
 
 <div class="panel">
@@ -1050,6 +1186,7 @@ db.settings({
 });
 
 let trades = [];
+let walletCash = 0;
 
 
 function setLoginError(message){
@@ -1170,8 +1307,83 @@ function requireLogin(){
   return true;
 }
 
+function userRef(){
+  return db.collection("users").doc(currentUser.uid);
+}
+
 function tradesRef(){
-  return db.collection("users").doc(currentUser.uid).collection("trades");
+  return userRef().collection("trades");
+}
+
+async function loadWallet(){
+  if(!currentUser){ walletCash = 0; return; }
+
+  try{
+    const doc = await Promise.race([
+      userRef().get(),
+      timeoutPromise(12000, "Kasa bilgisi okunamadı. Firebase zaman aşımı.")
+    ]);
+
+    walletCash = doc.exists ? Number(doc.data().walletCash || 0) : 0;
+  }catch(err){
+    console.error(err);
+    walletCash = 0;
+  }
+}
+
+async function saveWalletCash(value){
+  if(!currentUser){ return; }
+
+  walletCash = Number(value || 0);
+
+  await Promise.race([
+    userRef().set({
+      walletCash: walletCash,
+      walletUpdatedAt: new Date().toISOString()
+    }, { merge:true }),
+    timeoutPromise(12000, "Kasa kaydedilemedi. Firebase zaman aşımı.")
+  ]);
+
+  render();
+}
+
+async function adjustWalletCash(delta){
+  const newValue = Number(walletCash || 0) + Number(delta || 0);
+  await saveWalletCash(newValue);
+}
+
+function openCashDrawer(){
+  const drawer = document.getElementById("cashDrawer");
+  const overlay = document.getElementById("cashDrawerOverlay");
+  if(drawer) drawer.classList.add("active");
+  if(overlay) overlay.classList.add("active");
+}
+
+function closeCashDrawer(){
+  const drawer = document.getElementById("cashDrawer");
+  const overlay = document.getElementById("cashDrawerOverlay");
+  if(drawer) drawer.classList.remove("active");
+  if(overlay) overlay.classList.remove("active");
+}
+
+async function setCashBalance(){
+  if(!requireLogin()){ return; }
+
+  const input = document.getElementById("cashInput");
+  const value = parseKnightMoney(input ? input.value : 0);
+
+  if(value < 0 || !value){
+    alert("Kasa miktarı gir. Örnek: 100 GB");
+    return;
+  }
+
+  try{
+    await saveWalletCash(value);
+    if(input) input.value = "";
+    alert("Kasa ayarlandı: " + formatKnightMoney(value));
+  }catch(err){
+    alert("Kasa ayarlanamadı: " + err.message);
+  }
 }
 
 auth.onAuthStateChanged(async function(user){
@@ -1276,8 +1488,12 @@ function formatKnightMoney(value){
   let sign = n < 0 ? "-" : "";
   n = Math.abs(n);
 
-  if(n >= 100000000){
-    return sign + (n / 100000000).toLocaleString('tr-TR', {maximumFractionDigits:2}) + " GB";
+  // Knight market görünümü:
+  // 1 GB = 1.000.000.000
+  // 130.000.000 = 130 M
+  // 1.312.000.000 = 1,31 GB
+  if(n >= 1000000000){
+    return sign + (n / 1000000000).toLocaleString('tr-TR', {maximumFractionDigits:2}) + " GB";
   }
 
   if(n >= 1000000){
@@ -1329,6 +1545,7 @@ async function loadData(){
   if(!currentUser){ return; }
   try{
     trades = [];
+    await loadWallet();
     const snap = await Promise.race([
       tradesRef().get(),
       timeoutPromise(12000, "Firebase okuma zaman aşımı. Firestore Database açık mı kontrol et.")
@@ -1492,6 +1709,7 @@ async function confirmInlineSell(){
     }
 
     inlineSellIndex = null;
+    await adjustWalletCash(-(buy * qty));
     await loadData();
   }catch(err){
     alert("Satış kaydedilemedi: " + err.message);
@@ -1666,6 +1884,7 @@ function render(){
   let dailyProfit = 0;
   let weeklyProfit = 0;
   let monthlyProfit = 0;
+  let stockValue = 0;
 
   const todayStart = startOfToday();
   const weekStart = startOfWeekMonday();
@@ -1709,6 +1928,7 @@ function render(){
 
     if(!isSold){
       totalStock += 1;
+      stockValue += Number(t.buy || 0) * Number(t.qty || 0);
       stockArea.innerHTML += `
         <div class="stockItem">
           <span>${t.name}</span>
@@ -1789,6 +2009,23 @@ function render(){
 
   document.getElementById('monthlyProfit').innerText = formatKnightMoney(monthlyProfit);
   setProfitClass('monthlyProfit', monthlyProfit, true);
+
+  const cashBalanceView = document.getElementById('cashBalanceView');
+  if(cashBalanceView){
+    cashBalanceView.innerText = formatKnightMoney(walletCash);
+    cashBalanceView.className = walletCash >= 0 ? "cardValue green" : "cardValue red";
+  }
+
+  const cashBalancePanel = document.getElementById('cashBalancePanel');
+  if(cashBalancePanel){
+    cashBalancePanel.innerText = formatKnightMoney(walletCash);
+    cashBalancePanel.className = walletCash >= 0 ? "calcValue green" : "calcValue red";
+  }
+
+  const stockValuePanel = document.getElementById('stockValuePanel');
+  if(stockValuePanel){
+    stockValuePanel.innerText = formatKnightMoney(stockValue);
+  }
 
   const analysisDaily = document.getElementById('analysisDaily');
   if(analysisDaily) analysisDaily.innerText = formatKnightMoney(dailyProfit);
@@ -2271,6 +2508,9 @@ window.loadApprovalRequests = loadApprovalRequests;
 window.approveUser = approveUser;
 window.deleteApprovalRequest = deleteApprovalRequest;
 window.calculateMarketProfit = calculateMarketProfit;
+window.setCashBalance = setCashBalance;
+window.openCashDrawer = openCashDrawer;
+window.closeCashDrawer = closeCashDrawer;
 window.forgotPasswordRequest = forgotPasswordRequest;
 window.loadPasswordRequests = loadPasswordRequests;
 window.sendResetMailFromAdmin = sendResetMailFromAdmin;
@@ -2290,7 +2530,7 @@ document.addEventListener("DOMContentLoaded", function(){
   }
 
 
-  const moneyInputs = ["buyPrice","calcSellPrice"];
+  const moneyInputs = ["buyPrice","calcSellPrice","cashInput"];
   moneyInputs.forEach(function(id){
     const input = document.getElementById(id);
     if(!input) return;
