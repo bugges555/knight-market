@@ -1348,8 +1348,21 @@ async function saveWalletCash(value){
 }
 
 async function adjustWalletCash(delta){
-  const newValue = Number(walletCash || 0) + Number(delta || 0);
-  await saveWalletCash(newValue);
+  if(!currentUser){ return; }
+
+  const doc = await userRef().get();
+  const current = doc.exists ? Number(doc.data().walletCash || 0) : Number(walletCash || 0);
+  const newValue = current + Number(delta || 0);
+
+  walletCash = newValue;
+
+  await Promise.race([
+    userRef().set({
+      walletCash: walletCash,
+      walletUpdatedAt: new Date().toISOString()
+    }, { merge:true }),
+    timeoutPromise(12000, "Kasa hareketi kaydedilemedi. Firebase zaman aşımı.")
+  ]);
 }
 
 function openCashDrawer(){
@@ -1380,7 +1393,7 @@ async function setCashBalance(){
   try{
     await saveWalletCash(value);
     if(input) input.value = "";
-    alert("Kasa ayarlandı: " + formatKnightMoney(value));
+    alert("Ana kasa ayarlandı: " + formatKnightMoney(value));
   }catch(err){
     alert("Kasa ayarlanamadı: " + err.message);
   }
@@ -1453,30 +1466,36 @@ function parseKnightMoney(value){
     return value;
   }
 
-  let s = String(value || "").trim();
+  let s = String(value || "").trim().toLowerCase();
 
   if(!s){
     return 0;
   }
 
-  let lower = s.toLowerCase().replace(/\s/g, "");
   let multiplier = 1;
 
-  if(lower.includes("gb")){
-    multiplier = 100000000;
-    lower = lower.replace(/gb/g, "");
-  }else if(lower.includes("m")){
+  if(s.includes("gb")){
+    multiplier = 1000000000;
+    s = s.replace(/gb/g, "");
+  }else if(s.includes("m")){
     multiplier = 1000000;
-    lower = lower.replace(/m/g, "");
-  }else if(lower.includes("k")){
+    s = s.replace(/m/g, "");
+  }else if(s.includes("k")){
     multiplier = 1000;
-    lower = lower.replace(/k/g, "");
+    s = s.replace(/k/g, "");
   }
 
-  lower = lower.replace(/[.,]/g, "");
-  lower = lower.replace(/[^0-9-]/g, "");
+  s = s.replace(/\s/g, "");
 
-  return Number(lower || 0) * multiplier;
+  if(s.includes(",") && !s.includes(".")){
+    s = s.replace(",", ".");
+    return Number(s || 0) * multiplier;
+  }
+
+  s = s.replace(/[.,]/g, "");
+  s = s.replace(/[^0-9-]/g, "");
+
+  return Number(s || 0) * multiplier;
 }
 
 function formatRawCoins(value){
@@ -1582,7 +1601,13 @@ function parsePlainNumber(value){
 function formatNumberInputElement(input){
   if(!input) return;
 
-  let raw = input.value.replace(/[^0-9]/g,"");
+  let value = input.value || "";
+
+  if(/[a-zA-Z]/.test(value)){
+    return;
+  }
+
+  let raw = value.replace(/[^0-9]/g,"");
 
   if(!raw){
     input.value = "";
@@ -1707,6 +1732,8 @@ async function confirmInlineSell(){
         qty: kalanAdet
       });
     }
+
+    await adjustWalletCash(sellPrice * qty);
 
     inlineSellIndex = null;
     await adjustWalletCash(-(buy * qty));
@@ -2075,6 +2102,8 @@ async function addItem(){
       }),
       timeoutPromise(12000, "Firebase yazma zaman aşımı. Firestore Rules izinlerini kontrol et.")
     ]);
+
+    await adjustWalletCash(-(buy * qty));
 
     document.getElementById('itemName').value = "";
     document.getElementById('buyPrice').value = "";
@@ -2581,6 +2610,206 @@ document.addEventListener("DOMContentLoaded", function(){
 
 });
 
+</script>
+
+
+<script>
+(function(){
+  function parseKnightCashInput(value){
+    let s = String(value || "").trim().toLowerCase();
+
+    if(!s) return 0;
+
+    if(s.includes("gb") || s.endsWith("g")){
+      s = s.replace(/gb/g,"").replace(/g/g,"").replace(/\s/g,"").replace(",",".");
+      return (Number(s) || 0) * 1000000000;
+    }
+
+    if(s.includes("m")){
+      s = s.replace(/m/g,"").replace(/\s/g,"").replace(",",".");
+      return (Number(s) || 0) * 1000000;
+    }
+
+    if(s.includes("k")){
+      s = s.replace(/k/g,"").replace(/\s/g,"").replace(",",".");
+      return (Number(s) || 0) * 1000;
+    }
+
+    if(/^\d+([,.]\d+)?$/.test(s)){
+      s = s.replace(",",".");
+      return (Number(s) || 0) * 1000000000;
+    }
+
+    s = s.replace(/[.,]/g,"").replace(/[^0-9-]/g,"");
+    return Number(s || 0);
+  }
+
+  const oldSetCashBalance = window.setCashBalance;
+
+  window.setCashBalance = async function(){
+    if(typeof requireLogin === "function" && !requireLogin()){ return; }
+
+    const input = document.getElementById("cashInput");
+    const value = parseKnightCashInput(input ? input.value : 0);
+
+    if(value <= 0){
+      alert("Kasa miktarı gir. Örnek: 100 GB");
+      return;
+    }
+
+    try{
+      if(typeof saveWalletCash === "function"){
+        await saveWalletCash(value);
+      }else if(oldSetCashBalance){
+        await oldSetCashBalance();
+        return;
+      }
+
+      if(input) input.value = "";
+      alert("Ana kasa ayarlandı: " + formatKnightMoney(value));
+    }catch(err){
+      alert("Kasa ayarlanamadı: " + err.message);
+    }
+  };
+
+  document.addEventListener("DOMContentLoaded", function(){
+    const cash = document.getElementById("cashInput");
+    if(cash){
+      cash.placeholder = "Örn: 100 GB";
+    }
+  });
+})();
+</script>
+
+
+<script>
+/* === KO PARA MANTIĞI FINAL FIX ===
+   1 GB = 100.000.000
+   10 GB = 1.000.000.000
+   100 GB = 10.000.000.000
+*/
+function parseKnightMoney(value){
+  if(typeof value === "number"){ return value; }
+
+  let s = String(value || "").trim().toLowerCase();
+  if(!s){ return 0; }
+
+  let multiplier = 1;
+
+  if(s.includes("gb") || s.endsWith("g")){
+    multiplier = 100000000;
+    s = s.replace(/gb/g, "").replace(/g/g, "");
+  }else if(s.includes("m")){
+    multiplier = 1000000;
+    s = s.replace(/m/g, "");
+  }else if(s.includes("k")){
+    multiplier = 1000;
+    s = s.replace(/k/g, "");
+  }
+
+  s = s.replace(/\s/g, "");
+
+  if(multiplier !== 1){
+    s = s.replace(",", ".");
+    return (Number(s) || 0) * multiplier;
+  }
+
+  s = s.replace(/[.,]/g, "");
+  s = s.replace(/[^0-9-]/g, "");
+
+  return Number(s || 0);
+}
+
+function formatKnightMoney(value){
+  let n = Number(value || 0);
+  let sign = n < 0 ? "-" : "";
+  n = Math.abs(n);
+
+  if(n >= 100000000){
+    return sign + (n / 100000000).toLocaleString('tr-TR', {maximumFractionDigits:2}) + " GB";
+  }
+
+  if(n >= 1000000){
+    return sign + (n / 1000000).toLocaleString('tr-TR', {maximumFractionDigits:2}) + " M";
+  }
+
+  if(n >= 1000){
+    return sign + (n / 1000).toLocaleString('tr-TR', {maximumFractionDigits:2}) + " K";
+  }
+
+  return sign + n.toLocaleString('tr-TR');
+}
+
+function parseCashInputKO(value){
+  let s = String(value || "").trim().toLowerCase();
+  if(!s){ return 0; }
+
+  if(s.includes("gb") || s.endsWith("g")){
+    s = s.replace(/gb/g, "").replace(/g/g, "").replace(/\s/g, "").replace(",", ".");
+    return (Number(s) || 0) * 100000000;
+  }
+
+  if(s.includes("m")){
+    s = s.replace(/m/g, "").replace(/\s/g, "").replace(",", ".");
+    return (Number(s) || 0) * 1000000;
+  }
+
+  if(s.includes("k")){
+    s = s.replace(/k/g, "").replace(/\s/g, "").replace(",", ".");
+    return (Number(s) || 0) * 1000;
+  }
+
+  // Kullanıcı sadece 100 yazarsa kasa panelinde 100 GB kabul et.
+  if(/^\d+([,.]\d+)?$/.test(s)){
+    s = s.replace(",", ".");
+    return (Number(s) || 0) * 100000000;
+  }
+
+  // Kullanıcı 10.000.000.000 yazarsa raw coin kabul et = 100 GB.
+  s = s.replace(/[.,]/g, "").replace(/[^0-9-]/g, "");
+  return Number(s || 0);
+}
+
+window.setCashBalance = async function(){
+  if(typeof requireLogin === "function" && !requireLogin()){ return; }
+
+  const input = document.getElementById("cashInput");
+  const value = parseCashInputKO(input ? input.value : 0);
+
+  if(value <= 0){
+    alert("Kasa miktarı gir. Örnek: 100 GB veya 10.000.000.000");
+    return;
+  }
+
+  try{
+    if(typeof saveWalletCash === "function"){
+      await saveWalletCash(value);
+    }else{
+      walletCash = value;
+      await userRef().set({
+        walletCash: walletCash,
+        walletUpdatedAt: new Date().toISOString()
+      }, { merge:true });
+      render();
+    }
+
+    if(input) input.value = "";
+    alert("Ana kasa ayarlandı: " + formatKnightMoney(value));
+  }catch(err){
+    alert("Kasa ayarlanamadı: " + err.message);
+  }
+};
+
+document.addEventListener("DOMContentLoaded", function(){
+  const cash = document.getElementById("cashInput");
+  if(cash){
+    cash.placeholder = "Örn: 100 GB veya 10.000.000.000";
+  }
+
+  if(typeof render === "function"){
+    setTimeout(function(){ render(); }, 300);
+  }
+});
 </script>
 
 </body>
