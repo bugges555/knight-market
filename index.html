@@ -546,6 +546,36 @@ grid-template-columns:1fr 1fr;
 }
 }
 
+
+.itemSearchBox{
+margin-left:auto;
+min-width:280px;
+height:44px;
+background:#090511;
+border:1px solid #5b24a8;
+border-radius:12px;
+padding:0 16px;
+color:white;
+font-weight:700;
+box-shadow:0 0 18px rgba(123,44,255,.12);
+}
+.itemSearchBox::placeholder{
+color:#9d7be8;
+}
+.filterBar{
+align-items:center;
+}
+@media(max-width:1200px){
+.itemSearchBox{
+width:100%;
+min-width:100%;
+margin-left:0;
+}
+.filterBar{
+flex-wrap:wrap;
+}
+}
+
 </style>
 </head>
 
@@ -778,6 +808,8 @@ Satılan
 <button class="filterBtn" onclick="filterItems('waiting')">
 Satılmayan
 </button>
+
+<input class="itemSearchBox" id="itemSearchInput" type="text" placeholder="🔍 Item Ara..." oninput="applyItemSearch()">
 
 </div>
 
@@ -1321,6 +1353,9 @@ async function loadData(){
 }
 
 
+let currentFilterType = "all";
+let currentItemSearch = "";
+
 let inlineSellIndex = null;
 
 function parsePlainNumber(value){
@@ -1765,6 +1800,10 @@ function render(){
   if(analysisMonthly) analysisMonthly.innerText = formatKnightMoney(monthlyProfit);
 
   renderAnalysis(document.getElementById("analysisRange") ? document.getElementById("analysisRange").value : "today");
+
+  if(typeof applyItemSearch === "function"){
+    applyItemSearch();
+  }
 }
 
 async function addItem(){
@@ -1850,20 +1889,46 @@ async function editItem(index){
 }
 
 function filterItems(type){
-  const rows = document.querySelectorAll('#tableBody tr');
+  currentFilterType = type || "all";
+  applyItemSearch();
+}
+
+function applyItemSearch(){
+  const input = document.getElementById("itemSearchInput");
+  currentItemSearch = input ? input.value.trim().toLowerCase() : "";
+
+  const rows = document.querySelectorAll("#tableBody tr");
 
   rows.forEach(function(row){
-    const sellText = row.cells[3].innerText.trim();
+    if(row.classList.contains("inlineSellRow")){
+      row.style.display = "";
+      return;
+    }
 
-    if(type === 'all'){
-      row.style.display = '';
+    const itemName = row.cells && row.cells[0] ? row.cells[0].innerText.toLowerCase() : "";
+    const sellText = row.cells && row.cells[3] ? row.cells[3].innerText.trim() : "";
+
+    const matchesSearch = !currentItemSearch || itemName.includes(currentItemSearch);
+    let matchesType = true;
+
+    if(currentFilterType === "sold"){
+      matchesType = sellText !== "SATILMADI";
+    }else if(currentFilterType === "waiting"){
+      matchesType = sellText === "SATILMADI";
     }
-    else if(type === 'sold'){
-      row.style.display = sellText !== 'SATILMADI' ? '' : 'none';
-    }
-    else if(type === 'waiting'){
-      row.style.display = sellText === 'SATILMADI' ? '' : 'none';
-    }
+
+    row.style.display = (matchesSearch && matchesType) ? "" : "none";
+  });
+
+  ["stockArea","soldArea","analysisList"].forEach(function(areaId){
+    const area = document.getElementById(areaId);
+    if(!area) return;
+
+    const items = area.querySelectorAll(".stockItem");
+    items.forEach(function(item){
+      const text = item.innerText.toLowerCase();
+      item.style.display = (!currentItemSearch || text.includes(currentItemSearch)) ? "" : "none";
+    });
   });
 }
 
@@ -2196,6 +2261,7 @@ window.closeInlineSell = closeInlineSell;
 window.deleteItem = deleteItem;
 window.editItem = editItem;
 window.filterItems = filterItems;
+window.applyItemSearch = applyItemSearch;
 window.addItem = addItem;
 window.loginAdmin = loginAdmin;
 window.registerUser = registerUser;
