@@ -673,6 +673,73 @@ white-space:nowrap;
 .cardNote{font-size:10px;}
 }
 
+
+/* Pazar Kar Hesaplayıcı modal */
+.marketCalcOverlay{
+position:fixed;
+inset:0;
+background:rgba(0,0,0,.68);
+z-index:9997;
+display:none;
+align-items:center;
+justify-content:center;
+padding:25px;
+}
+.marketCalcOverlay.active{display:flex;}
+.marketCalcModal{
+width:min(1180px,96vw);
+max-height:90vh;
+overflow:auto;
+background:#090511;
+border:1px solid #7b2cff;
+border-radius:22px;
+box-shadow:0 0 45px rgba(123,44,255,.32);
+padding:22px;
+}
+.marketCalcHead{
+display:flex;
+justify-content:space-between;
+align-items:center;
+gap:15px;
+margin-bottom:16px;
+}
+.marketCalcClose{
+width:42px;
+height:42px;
+border:none;
+border-radius:12px;
+background:#ff456f;
+color:white;
+font-size:24px;
+font-weight:900;
+cursor:pointer;
+}
+.marketCalcModal .panel{margin:0;}
+
+
+
+/* === KASA GÜVENLİK UI - KİBAR / KÜÇÜK === */
+.cashSafeActions{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:-6px 0 18px;}
+.cashSafeBtn{height:38px;border-radius:11px;border:1px solid #3b1d66;background:rgba(18,10,29,.92);color:#c7a8ff;font-size:11px;font-weight:800;letter-spacing:.2px;cursor:pointer;transition:.18s;}
+.cashSafeBtn:hover{background:#1d1030;border-color:#7b2cff;color:#fff;transform:translateY(-1px)}
+.cashSafeBtn.warn{border-color:rgba(255,69,111,.45);color:#ff9bb3;}
+.cashConfirmOverlay{position:fixed;inset:0;background:rgba(0,0,0,.68);z-index:10050;display:none;align-items:center;justify-content:center;padding:20px;backdrop-filter:blur(4px)}
+.cashConfirmOverlay.active{display:flex;}
+.cashConfirmBox{width:min(430px,94vw);background:#090511;border:1px solid #5b2497;border-radius:20px;box-shadow:0 0 38px rgba(123,44,255,.25);padding:20px;}
+.cashConfirmTitle{font-family:'Cinzel',serif;color:#ffdf95;font-size:20px;margin-bottom:7px;}
+.cashConfirmText{color:#bda6f3;font-size:12px;line-height:1.55;margin-bottom:14px;}
+.cashConfirmCompare{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px;}
+.cashConfirmMini{background:#120a1d;border:1px solid #35175c;border-radius:14px;padding:12px;}
+.cashConfirmMini span{display:block;color:#9f83df;font-size:10px;margin-bottom:5px;}
+.cashConfirmMini strong{display:block;color:#00ff9d;font-size:16px;white-space:nowrap;}
+.cashConfirmBtns{display:flex;gap:10px;}
+.cashConfirmBtns button{flex:1;height:42px;border:none;border-radius:12px;color:white;font-weight:900;cursor:pointer;}
+.cashConfirmCancel{background:#211232;border:1px solid #44216f!important;color:#cbb6ff!important;}
+.cashConfirmOk{background:linear-gradient(135deg,#7b2cff,#9b35ff);}
+.cashConfirmDanger{background:#ff456f;}
+.cashUndoBtn{width:100%;height:36px;margin-top:10px;border-radius:11px;border:1px solid rgba(255,223,149,.28);background:rgba(255,223,149,.06);color:#ffdf95;font-size:11px;font-weight:800;cursor:pointer;}
+.cashUndoBtn:hover{background:rgba(255,223,149,.12);}
+
 </style>
 </head>
 
@@ -750,8 +817,16 @@ Satılanlar
 Kar / Zarar Analiz
 </button>
 
+<button type="button" onclick="openMarketCalcModal()">
+Pazar Kar Hesaplayıcı
+</button>
+
 <button id="settingsMenuBtn" onclick="showSection('settingsPage')">
 Ayarlar
+</button>
+
+<button type="button" onclick="openCashDrawer()">
+Ana Kasa
 </button>
 
 </div>
@@ -796,12 +871,6 @@ Ayarlar
 <div class="cardNote">Her ayın 1'i 00:00'da yeni ay başlar.</div>
 </div>
 
-<div class="card" onclick="openCashDrawer()" style="cursor:pointer;">
-<div class="cardTitle">ANA KASA</div>
-<div class="cardValue green" id="cashBalanceView">0</div>
-<div class="cardNote">Kasa yönetimini açmak için tıkla.</div>
-</div>
-
 </div>
 
 <div class="cashDrawerOverlay" id="cashDrawerOverlay" onclick="closeCashDrawer()"></div>
@@ -837,10 +906,12 @@ Ayarlar
   </div>
 </div>
 
+<div class="marketCalcOverlay" id="marketCalcOverlay" onclick="closeMarketCalcModal()">
+  <div class="marketCalcModal" onclick="event.stopPropagation()">
 <div class="panel">
-
-<div class="panelTitle">
-Pazar Kar Hesaplayıcı
+<div class="marketCalcHead">
+  <div class="panelTitle">Pazar Kar Hesaplayıcı</div>
+  <button class="marketCalcClose" type="button" onclick="closeMarketCalcModal()">×</button>
 </div>
 
 <div class="calcGrid">
@@ -901,6 +972,8 @@ HESAPLA
 
 </div>
 
+  </div>
+</div>
 
 <div class="panel">
 
@@ -2812,5 +2885,653 @@ document.addEventListener("DOMContentLoaded", function(){
 });
 </script>
 
+
+<script>
+/* ===== PROFESSIONAL KO CASH CONTROLS FINAL =====
+   KO Para Mantığı:
+   100.000.000 = 1 GB
+   500.000.000 = 5 GB
+   1.000.000.000 = 10 GB
+   10.000.000.000 = 100 GB
+*/
+window.KO_GB_VALUE = 100000000;
+
+window.formatKnightMoney = function(value){
+  let n = Number(value || 0);
+  const sign = n < 0 ? "-" : "";
+  n = Math.abs(n);
+
+  if(n >= window.KO_GB_VALUE){
+    return sign + parseFloat((n / window.KO_GB_VALUE).toFixed(2)).toLocaleString("tr-TR") + " GB";
+  }
+
+  if(n >= 1000000){
+    return sign + parseFloat((n / 1000000).toFixed(2)).toLocaleString("tr-TR") + " M";
+  }
+
+  if(n >= 1000){
+    return sign + parseFloat((n / 1000).toFixed(2)).toLocaleString("tr-TR") + " K";
+  }
+
+  return sign + n.toLocaleString("tr-TR");
+};
+
+window.parseKnightMoney = function(value){
+  if(typeof value === "number"){ return value; }
+
+  let s = String(value || "").trim().toLowerCase();
+  if(!s){ return 0; }
+
+  if(s.includes("gb") || s.endsWith("g")){
+    s = s.replace(/gb/g, "").replace(/g/g, "").replace(/\s/g, "").replace(",", ".");
+    return (Number(s) || 0) * window.KO_GB_VALUE;
+  }
+
+  if(s.includes("m")){
+    s = s.replace(/m/g, "").replace(/\s/g, "").replace(",", ".");
+    return (Number(s) || 0) * 1000000;
+  }
+
+  if(s.includes("k")){
+    s = s.replace(/k/g, "").replace(/\s/g, "").replace(",", ".");
+    return (Number(s) || 0) * 1000;
+  }
+
+  s = s.replace(/[.,]/g, "").replace(/[^0-9-]/g, "");
+  return Number(s || 0);
+};
+
+function parseCashAmount(value){
+  let s = String(value || "").trim().toLowerCase();
+  if(!s){ return 0; }
+
+  if(s.includes("gb") || s.endsWith("g") || s.includes("m") || s.includes("k")){
+    return window.parseKnightMoney(s);
+  }
+
+  // Nokta / virgül varsa bu kullanıcı coin yazıyor demektir: 500.000.000 = 5 GB
+  if(/[.,]/.test(s)){
+    return window.parseKnightMoney(s);
+  }
+
+  const onlyNum = s.replace(/[^0-9]/g, "");
+  if(!onlyNum){ return 0; }
+
+  // 100 gibi küçük sayı yazılırsa 100 GB kabul et.
+  // 500000000 gibi büyük sayı yazılırsa direkt coin kabul et.
+  if(onlyNum.length <= 3){
+    return Number(onlyNum) * window.KO_GB_VALUE;
+  }
+
+  return Number(onlyNum);
+}
+
+window.setCashBalance = async function(){
+  if(typeof requireLogin === "function" && !requireLogin()){ return; }
+
+  const input = document.getElementById("cashInput");
+  const value = parseCashAmount(input ? input.value : 0);
+
+  if(value <= 0){
+    alert("Ana kasa miktarı gir. Örnek: 100 GB veya 10.000.000.000");
+    return;
+  }
+
+  try{
+    walletCash = value;
+
+    await userRef().set({
+      walletCash: walletCash,
+      walletUpdatedAt: new Date().toISOString()
+    }, { merge:true });
+
+    if(input){ input.value = ""; }
+    render();
+
+    alert("Ana kasa ayarlandı: " + formatKnightMoney(walletCash));
+  }catch(err){
+    alert("Ana kasa ayarlanamadı: " + err.message);
+  }
+};
+
+window.changeCashByCustomAmount = async function(direction){
+  if(typeof requireLogin === "function" && !requireLogin()){ return; }
+
+  const input = document.getElementById("cashChangeInput");
+  const amount = parseCashAmount(input ? input.value : 0);
+
+  if(amount <= 0){
+    alert("Eklenecek / düşülecek miktarı yaz. Örnek: 5 GB, 500 M, 500.000.000");
+    return;
+  }
+
+  const delta = direction === "remove" ? -amount : amount;
+
+  try{
+    const doc = await userRef().get();
+    const current = doc.exists ? Number(doc.data().walletCash || 0) : Number(walletCash || 0);
+
+    walletCash = current + delta;
+
+    await userRef().set({
+      walletCash: walletCash,
+      walletUpdatedAt: new Date().toISOString()
+    }, { merge:true });
+
+    if(input){ input.value = ""; }
+    render();
+
+    alert((direction === "remove" ? "Kasadan düşüldü: " : "Kasaya eklendi: ") + formatKnightMoney(amount));
+  }catch(err){
+    alert("Kasa hareketi yapılamadı: " + err.message);
+  }
+};
+
+function installProfessionalCashControls(){
+  const oldButtons = document.getElementById("walletExtraButtons");
+  if(oldButtons){ oldButtons.remove(); }
+
+  if(document.getElementById("cashProControls")){ return; }
+
+  const cashInput = document.getElementById("cashInput");
+  if(!cashInput || !cashInput.parentNode){ return; }
+
+  cashInput.placeholder = "Ana kasa ayarla: 100 GB veya 10.000.000.000";
+
+  const box = document.createElement("div");
+  box.id = "cashProControls";
+  box.style.marginTop = "14px";
+  box.innerHTML = `
+    <div style="font-size:12px;color:#b08dff;margin-bottom:8px;font-weight:700;">
+      Kasaya Ekle / Kasadan Düş
+    </div>
+    <input id="cashChangeInput" type="text" inputmode="text"
+      placeholder="Örn: 5 GB, 500 M, 500.000.000"
+      style="width:100%;height:52px;background:#090511;border:1px solid #3c1c68;border-radius:12px;padding:0 15px;color:white;margin-bottom:12px;">
+    <div style="display:flex;gap:10px;">
+      <button type="button" onclick="changeCashByCustomAmount('add')" style="
+        flex:1;height:48px;border:none;border-radius:12px;background:#00c97b;color:white;font-weight:800;cursor:pointer;">
+        KASAYA EKLE
+      </button>
+      <button type="button" onclick="changeCashByCustomAmount('remove')" style="
+        flex:1;height:48px;border:none;border-radius:12px;background:#ff456f;color:white;font-weight:800;cursor:pointer;">
+        KASADAN DÜŞ
+      </button>
+    </div>
+  `;
+
+  cashInput.parentNode.appendChild(box);
+}
+
+document.addEventListener("DOMContentLoaded", function(){
+  setTimeout(installProfessionalCashControls, 500);
+  setTimeout(function(){
+    if(typeof render === "function"){ render(); }
+  }, 700);
+});
+
+const oldOpenCashDrawer = window.openCashDrawer;
+window.openCashDrawer = function(){
+  if(typeof oldOpenCashDrawer === "function"){ oldOpenCashDrawer(); }
+  setTimeout(installProfessionalCashControls, 150);
+};
+</script>
+
+
+<script>
+/* === FINAL UI FIX: modal + money dots + KO raw coin parse === */
+window.openMarketCalcModal = function(){
+  const el = document.getElementById('marketCalcOverlay');
+  if(el){ el.classList.add('active'); }
+};
+window.closeMarketCalcModal = function(){
+  const el = document.getElementById('marketCalcOverlay');
+  if(el){ el.classList.remove('active'); }
+};
+
+function dotFormatMoneyValue(value){
+  const raw = String(value || '').replace(/\D/g, '');
+  if(!raw){ return ''; }
+  return raw.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+}
+
+document.addEventListener('input', function(e){
+  const ids = ['cashInput','cashChangeInput','buyPrice','calcSellPrice'];
+  if(!e.target || !ids.includes(e.target.id)){ return; }
+  const before = e.target.value;
+  const formatted = dotFormatMoneyValue(before);
+  e.target.value = formatted;
+}, true);
+
+window.parseCashAmount = function(value){
+  let s = String(value || '').trim().toLowerCase();
+  if(!s){ return 0; }
+  if(s.includes('gb') || s.endsWith('g') || s.includes('m') || s.includes('k')){
+    return window.parseKnightMoney(s);
+  }
+  if(/[.,]/.test(s)){
+    return window.parseKnightMoney(s);
+  }
+  const onlyNum = s.replace(/[^0-9]/g, '');
+  if(!onlyNum){ return 0; }
+  if(onlyNum.length <= 3){ return Number(onlyNum) * window.KO_GB_VALUE; }
+  return Number(onlyNum);
+};
+
+const oldInstallProfessionalCashControlsFinal = window.installProfessionalCashControls;
+window.installProfessionalCashControls = function(){
+  if(typeof oldInstallProfessionalCashControlsFinal === 'function'){ oldInstallProfessionalCashControlsFinal(); }
+  const input = document.getElementById('cashChangeInput');
+  if(input){
+    input.inputMode = 'numeric';
+    input.placeholder = 'Örn: 500.000.000';
+  }
+  const cashInput = document.getElementById('cashInput');
+  if(cashInput){
+    cashInput.inputMode = 'numeric';
+    cashInput.placeholder = 'Örn: 10.000.000.000 veya 100';
+  }
+};
+
+document.addEventListener('DOMContentLoaded', function(){
+  const cashInput = document.getElementById('cashInput');
+  if(cashInput){ cashInput.placeholder = 'Örn: 10.000.000.000 veya 100'; }
+  setTimeout(function(){
+    if(typeof window.installProfessionalCashControls === 'function'){ window.installProfessionalCashControls(); }
+  }, 800);
+});
+</script>
 </body>
 </html>
+
+<script>
+/* ===== KO MONEY FINAL PROFESSIONAL FIX ===== */
+
+window.KO_GB_VALUE = 100000000;
+
+// overwrite formatter
+window.formatKnightMoney = function(value){
+    let n = Number(value || 0);
+    const sign = n < 0 ? "-" : "";
+    n = Math.abs(n);
+
+    if(n >= KO_GB_VALUE){
+        return sign + parseFloat((n / KO_GB_VALUE).toFixed(2)) + " GB";
+    }
+
+    if(n >= 1000000){
+        return sign + parseFloat((n / 1000000).toFixed(2)) + " M";
+    }
+
+    if(n >= 1000){
+        return sign + parseFloat((n / 1000).toFixed(2)) + " K";
+    }
+
+    return sign + n.toLocaleString("tr-TR");
+};
+
+// parser
+window.parseKnightMoney = function(value){
+    if(typeof value === "number") return value;
+
+    let s = String(value || "").trim().toLowerCase();
+
+    if(!s) return 0;
+
+    // GB input
+    if(s.includes("gb")){
+        s = s.replace(/gb/g, "").replace(/\s/g, "").replace(",", ".");
+        return (Number(s) || 0) * KO_GB_VALUE;
+    }
+
+    // M input
+    if(s.includes("m")){
+        s = s.replace(/m/g, "").replace(/\s/g, "").replace(",", ".");
+        return (Number(s) || 0) * 1000000;
+    }
+
+    // Raw coin
+    s = s.replace(/[.,]/g, "");
+    s = s.replace(/[^0-9]/g, "");
+
+    return Number(s || 0);
+};
+
+// Better wallet editor
+window.setCashBalance = async function(){
+
+    if(!currentUser){
+        alert("Giriş yap.");
+        return;
+    }
+
+    const input = document.getElementById("cashInput");
+
+    let raw = input.value.trim();
+
+    if(!raw){
+        alert("Kasa miktarı gir.");
+        return;
+    }
+
+    // 100 yazılırsa 100 GB kabul et
+    let value;
+
+    if(raw.toLowerCase().includes("gb")){
+        value = parseKnightMoney(raw);
+    }else if(raw.includes(".")){
+        // 10.000.000.000 gibi raw coin
+        value = parseKnightMoney(raw);
+    }else{
+        // direkt 100 yazarsa 100 GB
+        value = Number(raw.replace(",", ".")) * KO_GB_VALUE;
+    }
+
+    try{
+
+        walletCash = value;
+
+        await userRef().set({
+            walletCash: walletCash,
+            walletUpdatedAt: new Date().toISOString()
+        }, { merge:true });
+
+        render();
+
+        alert("Ana kasa güncellendi: " + formatKnightMoney(walletCash));
+
+    }catch(err){
+        alert("Kasa güncellenemedi: " + err.message);
+    }
+};
+
+// kasa düzenleme sistemi
+window.addCashToWallet = async function(amount){
+
+    walletCash = Number(walletCash || 0) + Number(amount || 0);
+
+    await userRef().set({
+        walletCash: walletCash
+    }, { merge:true });
+
+    render();
+};
+
+// render sonrası yeni buton ekle
+document.addEventListener("DOMContentLoaded", ()=>{
+
+    setTimeout(()=>{
+
+        const area = document.querySelector(".wallet-actions") || document.querySelector(".cash-actions") || document.body;
+
+        if(document.getElementById("walletExtraButtons")) return;
+
+        const wrap = document.createElement("div");
+        wrap.id = "walletExtraButtons";
+        wrap.style.marginTop = "12px";
+        wrap.style.display = "flex";
+        wrap.style.gap = "10px";
+
+        wrap.innerHTML = `
+            <button id="add10gbBtn" style="
+                flex:1;
+                height:48px;
+                border:none;
+                border-radius:12px;
+                background:#00c853;
+                color:white;
+                font-weight:700;
+                cursor:pointer;
+            ">+10 GB</button>
+
+            <button id="remove10gbBtn" style="
+                flex:1;
+                height:48px;
+                border:none;
+                border-radius:12px;
+                background:#ff3d71;
+                color:white;
+                font-weight:700;
+                cursor:pointer;
+            ">-10 GB</button>
+        `;
+
+        const cashInput = document.getElementById("cashInput");
+
+        if(cashInput && cashInput.parentNode){
+            cashInput.parentNode.appendChild(wrap);
+        }
+
+        document.getElementById("add10gbBtn").onclick = async ()=>{
+            await addCashToWallet(10 * KO_GB_VALUE);
+            alert("Kasaya +10 GB eklendi");
+        };
+
+        document.getElementById("remove10gbBtn").onclick = async ()=>{
+            await addCashToWallet(-(10 * KO_GB_VALUE));
+            alert("Kasadan -10 GB düşüldü");
+        };
+
+    }, 1000);
+
+});
+
+</script>
+
+
+<script>
+/* === KASA GÜVENLİ AYARLAMA + GERİ ALMA FINAL === */
+(function(){
+  const GB = window.KO_GB_VALUE || 100000000;
+
+  function fmt(v){
+    if(typeof window.formatKnightMoney === 'function') return window.formatKnightMoney(v);
+    return Number(v||0).toLocaleString('tr-TR');
+  }
+  function parseCash(v){
+    if(typeof window.parseCashAmount === 'function') return window.parseCashAmount(v);
+    if(typeof window.parseKnightMoney === 'function') return window.parseKnightMoney(v);
+    return Number(String(v||'').replace(/[^0-9]/g,''));
+  }
+  function currentCash(){ return Number(window.walletCash || 0); }
+
+  function ensureConfirmModal(){
+    let ov = document.getElementById('cashConfirmOverlay');
+    if(ov) return ov;
+    ov = document.createElement('div');
+    ov.id = 'cashConfirmOverlay';
+    ov.className = 'cashConfirmOverlay';
+    ov.innerHTML = `
+      <div class="cashConfirmBox" onclick="event.stopPropagation()">
+        <div class="cashConfirmTitle" id="cashConfirmTitle">Kasa Onayı</div>
+        <div class="cashConfirmText" id="cashConfirmText">Bu işlem kasayı değiştirecek.</div>
+        <div class="cashConfirmCompare">
+          <div class="cashConfirmMini"><span>Mevcut</span><strong id="cashConfirmOld">0</strong></div>
+          <div class="cashConfirmMini"><span>Yeni</span><strong id="cashConfirmNew">0</strong></div>
+        </div>
+        <div class="cashConfirmBtns">
+          <button type="button" class="cashConfirmCancel" id="cashConfirmCancel">Vazgeç</button>
+          <button type="button" class="cashConfirmOk" id="cashConfirmOk">Onayla</button>
+        </div>
+      </div>`;
+    document.body.appendChild(ov);
+    return ov;
+  }
+
+  window.showCashConfirm = function(opts){
+    return new Promise(resolve => {
+      const ov = ensureConfirmModal();
+      const ok = document.getElementById('cashConfirmOk');
+      const cancel = document.getElementById('cashConfirmCancel');
+      document.getElementById('cashConfirmTitle').innerText = opts.title || 'Kasa Onayı';
+      document.getElementById('cashConfirmText').innerText = opts.text || 'Bu işlem kasayı değiştirecek.';
+      document.getElementById('cashConfirmOld').innerText = fmt(opts.oldValue || 0);
+      document.getElementById('cashConfirmNew').innerText = fmt(opts.newValue || 0);
+      ok.innerText = opts.okText || 'Onayla';
+      ok.className = opts.danger ? 'cashConfirmDanger' : 'cashConfirmOk';
+      ov.classList.add('active');
+      const done = (val) => { ov.classList.remove('active'); ok.onclick=null; cancel.onclick=null; ov.onclick=null; resolve(val); };
+      ok.onclick = () => done(true);
+      cancel.onclick = () => done(false);
+      ov.onclick = () => done(false);
+    });
+  };
+
+  function installCashSafeButtons(){
+    const cashInput = document.getElementById('cashInput');
+    if(!cashInput || document.getElementById('cashSafeActions')) return;
+    const setBtn = cashInput.parentNode.querySelector('button[onclick="setCashBalance()"]');
+    if(setBtn){
+      setBtn.innerText = 'KASAYI GÜVENLİ AYARLA';
+      const safe = document.createElement('div');
+      safe.id = 'cashSafeActions';
+      safe.className = 'cashSafeActions';
+      safe.innerHTML = `
+        <button type="button" class="cashSafeBtn" onclick="restorePreviousCashBalance()">ÖNCEKİ KASAYI GERİ AL</button>
+        <button type="button" class="cashSafeBtn warn" onclick="clearCashInputOnly()">YAZILANI TEMİZLE</button>`;
+      setBtn.insertAdjacentElement('afterend', safe);
+    }
+    const pro = document.getElementById('cashProControls');
+    if(pro && !document.getElementById('cashUndoLastBtn')){
+      const btn = document.createElement('button');
+      btn.id = 'cashUndoLastBtn';
+      btn.type = 'button';
+      btn.className = 'cashUndoBtn';
+      btn.onclick = window.undoLastCashAction;
+      btn.innerText = 'SON EKLE / DÜŞ İŞLEMİNİ GERİ AL';
+      pro.appendChild(btn);
+    }
+  }
+
+  window.clearCashInputOnly = function(){
+    const input = document.getElementById('cashInput');
+    if(input) input.value = '';
+  };
+
+  window.setCashBalance = async function(){
+    if(typeof requireLogin === 'function' && !requireLogin()) return;
+    if(!window.currentUser && typeof currentUser !== 'undefined' && !currentUser){ alert('Giriş yap.'); return; }
+    const input = document.getElementById('cashInput');
+    const value = parseCash(input ? input.value : 0);
+    if(value <= 0){ alert('Kasa miktarı gir. Örnek: 100 veya 10.000.000.000'); return; }
+
+    const doc = await userRef().get();
+    const oldValue = doc.exists ? Number(doc.data().walletCash || 0) : currentCash();
+    const ok = await window.showCashConfirm({
+      title:'Kasayı Sıfırdan Ayarla',
+      text:'Bu işlem mevcut kasa tutarını tamamen yeni değerle değiştirir. Eski kasa yedeklenecek.',
+      oldValue:oldValue,
+      newValue:value,
+      okText:'Kasayı Ayarla'
+    });
+    if(!ok) return;
+
+    try{
+      window.walletCash = value;
+      if(typeof walletCash !== 'undefined') walletCash = value;
+      await userRef().set({
+        walletCash:value,
+        previousWalletCash:oldValue,
+        walletUpdatedAt:new Date().toISOString()
+      }, {merge:true});
+      if(input) input.value = '';
+      if(typeof render === 'function') render();
+    }catch(err){ alert('Kasa ayarlanamadı: ' + err.message); }
+  };
+
+  window.restorePreviousCashBalance = async function(){
+    if(typeof requireLogin === 'function' && !requireLogin()) return;
+    try{
+      const doc = await userRef().get();
+      if(!doc.exists || doc.data().previousWalletCash === undefined){ alert('Geri alınacak eski kasa kaydı yok.'); return; }
+      const oldNow = Number(doc.data().walletCash || 0);
+      const prev = Number(doc.data().previousWalletCash || 0);
+      const ok = await window.showCashConfirm({
+        title:'Önceki Kasayı Geri Yükle',
+        text:'Son kasa ayarlamasından önceki tutar geri yüklenecek.',
+        oldValue:oldNow,
+        newValue:prev,
+        okText:'Geri Yükle',
+        danger:true
+      });
+      if(!ok) return;
+      window.walletCash = prev;
+      if(typeof walletCash !== 'undefined') walletCash = prev;
+      await userRef().set({walletCash:prev, previousWalletCash:oldNow, walletUpdatedAt:new Date().toISOString()}, {merge:true});
+      if(typeof render === 'function') render();
+    }catch(err){ alert('Eski kasa geri yüklenemedi: ' + err.message); }
+  };
+
+  window.changeCashByCustomAmount = async function(direction){
+    if(typeof requireLogin === 'function' && !requireLogin()) return;
+    const input = document.getElementById('cashChangeInput');
+    const amount = parseCash(input ? input.value : 0);
+    if(amount <= 0){ alert('Eklenecek / düşülecek miktarı yaz. Örnek: 500.000.000'); return; }
+    const doc = await userRef().get();
+    const before = doc.exists ? Number(doc.data().walletCash || 0) : currentCash();
+    const delta = direction === 'remove' ? -amount : amount;
+    const after = before + delta;
+    const ok = await window.showCashConfirm({
+      title: direction === 'remove' ? 'Kasadan Düş' : 'Kasaya Ekle',
+      text: 'Bu işlem sadece girilen miktar kadar kasayı değiştirir. Sonra geri alınabilir.',
+      oldValue: before,
+      newValue: after,
+      okText: direction === 'remove' ? 'Düş' : 'Ekle',
+      danger: direction === 'remove'
+    });
+    if(!ok) return;
+    try{
+      window.walletCash = after;
+      if(typeof walletCash !== 'undefined') walletCash = after;
+      await userRef().set({
+        walletCash:after,
+        lastCashAction:{delta:delta, before:before, after:after, at:new Date().toISOString()},
+        walletUpdatedAt:new Date().toISOString()
+      }, {merge:true});
+      if(input) input.value = '';
+      if(typeof render === 'function') render();
+    }catch(err){ alert('Kasa hareketi yapılamadı: ' + err.message); }
+  };
+
+  window.undoLastCashAction = async function(){
+    if(typeof requireLogin === 'function' && !requireLogin()) return;
+    try{
+      const doc = await userRef().get();
+      const a = doc.exists ? doc.data().lastCashAction : null;
+      if(!a || a.before === undefined){ alert('Geri alınacak son ekle/düş işlemi yok.'); return; }
+      const now = Number(doc.data().walletCash || 0);
+      const before = Number(a.before || 0);
+      const ok = await window.showCashConfirm({
+        title:'Son İşlemi Geri Al',
+        text:'Son kasaya ekle / kasadan düş işlemi geri alınacak.',
+        oldValue: now,
+        newValue: before,
+        okText:'Geri Al',
+        danger:true
+      });
+      if(!ok) return;
+      window.walletCash = before;
+      if(typeof walletCash !== 'undefined') walletCash = before;
+      await userRef().set({
+        walletCash:before,
+        lastCashAction:null,
+        walletUpdatedAt:new Date().toISOString()
+      }, {merge:true});
+      if(typeof render === 'function') render();
+    }catch(err){ alert('Son işlem geri alınamadı: ' + err.message); }
+  };
+
+  const oldOpen = window.openCashDrawer;
+  window.openCashDrawer = function(){
+    if(typeof oldOpen === 'function') oldOpen();
+    setTimeout(installCashSafeButtons, 120);
+    setTimeout(installCashSafeButtons, 650);
+  };
+  document.addEventListener('DOMContentLoaded', function(){
+    setTimeout(installCashSafeButtons, 900);
+    setTimeout(installCashSafeButtons, 1600);
+    setTimeout(function(){ const extra=document.getElementById('walletExtraButtons'); if(extra) extra.remove(); }, 1700);
+  });
+})();
+</script>
+
